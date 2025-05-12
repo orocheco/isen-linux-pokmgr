@@ -9,27 +9,37 @@ SERVER_URL="http://localhost:8000/repo"
 
 mkdir -p "$POKEMON_DIR"
 
+# mode debug
+verbose=false 
+
+log() {
+    if [ "$verbose" = true ]; then
+        echo "$1"
+    fi
+}
+
 update_user_pokedex() 
 { # mise à jour du pokedex local
     # fichier de description du pokémon à ajouter
     pokemon_name=$1
     pokemon_json="$POKEMON_DIR/$pokemon_name/$pokemon_name.json"
 
-    echo $pokemon_json $pokemon_name $POKEDEX_FILE
+    log "$pokemon_json $pokemon_name $POKEDEX_FILE"
     # on vérifie que le pokemon n'existe pas déjà dans le pokedex
-    local entry=$(jq -c --arg name $pokemon_name '.[] | select(.name|test($name; "i"))' $POKEDEX_FILE)
-    echo ":$entry:"
+    local entry
+    entry=$(jq -c --arg name "$pokemon_name" '.[] | select(.name|test($name; "i"))' "$POKEDEX_FILE")
+    log ":$entry:"
 
     if [ -n "$entry" ]; then
         # check version
-        echo "found entry: $entry"
+        log "found entry: $entry"
         
     else 
         # add entry if it does not exist
         echo "Mise à jour du pokedex utilisateur avec: $entry"
 
          # Lire le JSON complet de pikachu.json dans une variable
-        NEW_ENTRY=$(<"$POKEMON_FILE")
+        # NEW_ENTRY=$(<"$POKEMON_FILE")
 
         # Injecter dans le tableau
         # jq --argjson new "$NEW_ENTRY" '. += [$new]' "$POKEDEX_FILE" > tmp.json && mv tmp.json "$POKEDEX_FILE"
@@ -45,7 +55,7 @@ fetch_data_to_file()
     
     # -s : silent
     # -o : output
-    curl -s -o $file_to $data_url
+    curl -s -o "$file_to" "$data_url"
 
     if [ $? -ne 0 ]; then echo "Erreur de téléchargement de $data_url"; exit 1; fi
 }
@@ -75,7 +85,7 @@ uninstall_pokemon() {
     name="$1"
 
     if [ -d "$POKEMON_DIR/$name" ]; then
-        read -p "Êtes-vous sûr de vouloir désinstaller '$POKEMON_NAME' ? [y/N] " confirm
+        read -rp "Êtes-vous sûr de vouloir désinstaller $name ? [y/N] " confirm
     else 
         echo "$name n'est pas installé"
         return 1
@@ -83,7 +93,7 @@ uninstall_pokemon() {
 
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
         echo "$name est en cours de désinstallation"
-        rm -rf $POKEMON_DIR/$name
+        rm -rf -- "${POKEMON_DIR:?}/${name:?}"
         # update json file...
         jq "map(select(.name != \"$name\"))" "$POKEDEX_FILE" > "$POKEDEX_FILE.tmp" && mv "$POKEDEX_FILE.tmp" "$POKEDEX_FILE"
     fi
@@ -93,14 +103,15 @@ list_local() {
     echo "Pokémons installés :"
     for dir in "$POKEMON_DIR"/*; do
         [ -d "$dir" ] || continue
-        # list of json
-        json_file="$dir/*.json"
-        echo "found json: " $json_file
-        if [ -f $json_file ]; then
+        # on cherche le fichier de description .json
+        json_file=$(find "$dir" -maxdepth 1 -type f -name "*.json" | head -n 1)
+
+        log "found json:  $json_file"
+        if [ -f "$json_file" ]; then
             # lecture du nom (-r = raw)
-            name=$(jq -r .name $json_file)
+            name=$(jq -r .name "$json_file")
             # lecture de la description 
-            desc=$(jq -r .description $json_file)
+            desc=$(jq -r .description "$json_file")
             echo "- $name: $desc"
         fi
     done
@@ -121,7 +132,7 @@ perform_action()
     local name=$1
 
     # affiche un prompt à l'utilisateur
-    prompt_user $name
+    prompt_user "$name"
     local action=$?
 }
 
@@ -137,7 +148,7 @@ prompt_user() {
     3) Attaquer"
 
     while true; do
-        read -p "Entrez le numéro de votre choix [1-3] : " action
+        read -rp "Entrez le numéro de votre choix [1-3] : " action
         if [[ "$action" =~ ^[1-3]$ ]]; then
             break
         else
@@ -148,13 +159,13 @@ prompt_user() {
         
     case "$action" in
     1)      
-        cast_spell $name
+        cast_spell "$name"
     ;;
     2)    
-        flee $name
+        flee "$name"
     ;;
     3)    
-        attack $name
+        attack "$name"
     ;;
     *)  echo "Error: invalid action $action" 
     ;;
@@ -217,47 +228,23 @@ search_pokemons()
     done
 }
 
-whipta() {
-    #!/bin/bash
 
-    CHOICE=$(whiptail --title "Pokémon: Attrapez les tous !" --menu "Que voulez-vous faire ?" 15 60 4 \
-    "1" "Lancer un sort" \
-    "2" "Fuir" \
-    "3" "Attaquer" \
-    "4" "Quitter" 3>&1 1>&2 2>&3)
-
-    exitstatus=$?
-
-    if [ $exitstatus -eq 0 ]; then
-        case $CHOICE in
-            1)
-                echo "Vous lancez un sort !"
-                whiptail --title "Example Title" --infobox "This is an example info box." 8 70
-                ;;
-            2)
-                echo "Vous tentez de fuir..."
-                ;;
-            3)
-                echo "Vous attaquez !"
-                ;;
-            4)
-                echo "À bientôt !"
-                ;;
-        esac
-    else
-        echo "Annulé par l'utilisateur."
-    fi
-}
-
-whiptail --title "Example Title" --msgbox "This is an example message box. Press OK to continue." 8 70
-
-# whipta
+# on vérifie les options
+while getopts "v" option; do
+    case $option in
+        v) verbose=true; shift ;;
+        *) ;;
+    esac
+done
 
 # load common.sh
 if [ -e "./common.sh" ]; then
-    echo "Loading common.sh"
-    . ./common.sh
+    log "Loading common.sh"
+    # shellcheck source=common.sh
+    source "./common.sh"
 fi
+
+
 
 case "$1" in
     install)     install_pokemon "$2" ;;
